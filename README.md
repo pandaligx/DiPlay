@@ -1,7 +1,9 @@
 # DiPlay
 
-> Experimental `android-4.4` port of 0.2.12. A source-only API19 test APK builds;
-> head-unit connection tests are pending. See [status and limitations](docs/ANDROID-4.4-PORT.md).
+> **Experimental Android 4.4 port, not a working CarPlay product.** The source-only
+> test APK has no runtime authentication identity and cannot complete CarPlay.
+> Installation/UI checks have passed; head-unit projection has not. See the
+> [authentication blocker and validation status](docs/ANDROID-4.4-PORT.md).
 
 **CarPlay for compatible BYD Android head units.** Wired and wireless, with the familiar DiAuto interface. Independent app: `com.shihab.diplay`.
 

@@ -1,6 +1,6 @@
 # Android 4.4.2 适配与验证记录
 
-日期：2026-10-05。分支：`android-4.4`。**无运行认证资产的测试 APK 已交付 Library，并通过官方 Android4.4.2 模拟器安装与冷启动。不能据此宣称车机 CarPlay 已连接成功。**
+日期：2026-10-05。分支：`android-4.4`。**项目尚未完成：用户需要正常投屏成品，当前测试 APK 不满足该目标。** 无运行认证资产的 APK 已交付 Library，仅通过官方 Android4.4.2 模拟器安装、冷启动和界面检查，不能完成 CarPlay。
 
 ## 基线与设备
 
@@ -52,6 +52,18 @@ Windows 隔离入口为任务目录 `run-gradle.ps1`。通用环境设置 JAVA_H
 
 测试APK不含accessory identity，也不含第三方证书私钥。没有提取、复制、上传第三方认证私钥，没有修改认证绕过。它用于安装、启动、设置和诊断验证；完整CarPlay会话仍需合法授权的运行认证条件。
 
+### 正常投屏具体缺什么
+
+当前合法输入没有提供可被iPhone接受、且获准用于本项目的认证身份或认证提供者，因此现在不能交付正常投屏成品。Android APK签名与CarPlay认证是两回事；换热点、换APK签名或再次安装同一无认证包都不能补齐身份。
+
+`DiPlayBootstrap.ensure` 默认LOCAL模式先查本应用私有 `no_backup/offline-mfi`。仅当目标目录不存在时，它才尝试从APK的 `assets/offline-mfi/identity.pk8` 和 `certificate.p7b` 初始化；已有目录会直接加载，不会因覆盖安装自动替换。当前测试APK没有这些asset。
+
+构建入口接受显式 `DIPLAY_AUTH_ASSETS_DIR`，`assembleStandaloneDebug`会要求这两个输入存在；这只是技术接入机制，不提供身份申领或授权。`LocalMfiAuthenticationClient`校验密钥/证书匹配不等于iPhone信任。应用自动生成的AirPlay配对身份也不能替代MFi认证。
+
+覆盖安装保留数据需要相同applicationId、兼容Android签名且未清除数据。本测试包是 `com.shihab.diplay.hudtest`，官方release是 `com.shihab.diplay`，两者不是覆盖更新关系；也未验证旧Legacy包的签名。不能把当前界面的“覆盖安装完整构建”当作已验证解决方案，更不能让用户删除旧数据尝试修复认证。
+
+源码有USB/CH341真MFi芯片、I2C和远程客户端后端，但这不证明用户拥有可用硬件或服务，也未找到已授权可用的托管服务。新装默认LOCAL的界面还会在身份缺失时拦截连接/主机设置，不能声称插入芯片并切换选项即可。没有K2X硬件证据时，不建议据此购买配件。后续须先确认真实、获授权的认证提供者，再接入并进行真机完整会话测试；本次不提取第三方私钥、不伪造身份、不绕过认证。
+
 ## 验证结果
 
 | 项目 | 实际结果 |
@@ -70,7 +82,7 @@ Windows 隔离入口为任务目录 `run-gradle.ps1`。通用环境设置 JAVA_H
 | API19模拟器页面 | 主页、常规设置、连接准备和设备/解码器报告均成功显示；设备报告列出API19/x86/约1GB/800×480。连接按钮明确提示认证未加载，未建立CarPlay会话 |
 | automotive / home / maphost构建 | **通过**；其中automotive因移动Car App类而增加构建覆盖 |
 | K2X真机连接、音视频、重连和长时压力 | **未测试** |
-| GitHub Actions | **未运行**，未声称远程CI通过 |
+| GitHub Actions | 源码提交 `f6710d5` 已触发 [Android checks](https://github.com/pandaligx/DiPlay/actions/runs/37270890800)，记录本次文档时仍在运行；不能称为通过 |
 
 日志在 `build/api19-verification/`，不提交生成物。Robolectric4.17支持SDK23起，其通过不等于API19框架/厂商ROM通过。API19模拟器为独立AVD/端口，复用已有WHPX，不连接或扫描物理设备。
 
@@ -86,7 +98,7 @@ SHA-256：`5272bd149a6e845f006451243f0f3f5579e36725586ef154dc5d07b0daf643cd`。
 
 测试包使用debug签名，不能承诺覆盖其他作者签名的旧包；不要为覆盖安装盲目卸载而丢失旧配置。先在停车状态验证安装/启动/设置/设备报告，再按实际ABI、蓝牙与热点证据推进无线。未经真机验证，不宣称全面兼容或连接成功。
 
-用户已确认目标 `pandaligx/DiPlay:android-4.4`，但创建fork的自动审批拒绝跨对话授权证据；携带原始答复核实后再次尝试仍拒绝。因此未创建远程仓库、推送或发布，不影响本地测试APK。
+此前创建fork曾被自动审批阻止。用户随后自行创建仓库；现已把原始适配提交 `f6710d568a9439bcd2af487dbefbf38d7ce0292a` 非强制推送至 [pandaligx/DiPlay:android-4.4](https://github.com/pandaligx/DiPlay/tree/android-4.4)，并核验远端SHA一致。`main`仍为上游基线，没有改默认分支或创建Release。此代码推送不代表认证和正常投屏目标已完成。
 
 ## 参考
 
