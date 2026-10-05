@@ -5,6 +5,7 @@ import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.os.Handler
+import android.os.Build
 import android.os.Looper
 import android.os.Process
 import android.os.SystemClock
@@ -21,7 +22,8 @@ internal class DiLink51ClusterMonitor(context: Context, private val onState: (Cl
     private val seen = linkedMapOf<EventKey, Long>()
     // This firmware includes the system getter. If Android hides it, single-instance stock
     // activities still work, but an overlapping recreation conservatively hides the map.
-    private val instanceIdMethod = runCatching { UsageEvents.Event::class.java.getMethod("getInstanceId") }.getOrNull()
+    private val instanceIdMethod = if (Build.VERSION.SDK_INT >= 21)
+        runCatching { UsageEvents.Event::class.java.getMethod("getInstanceId") }.getOrNull() else null
     @Volatile private var stopped = false
     private data class EventKey(val pkg: String?, val name: String?, val id: Int, val type: Int, val time: Long)
 
@@ -51,7 +53,7 @@ internal class DiLink51ClusterMonitor(context: Context, private val onState: (Cl
                     seen.clear()
                     since = bootTime()
                 }
-                val events = context.getSystemService(UsageStatsManager::class.java).queryEvents(since, now)
+                val events = (context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager)?.queryEvents(since, now)
                     ?: throw IllegalStateException("Usage events unavailable")
                 val event = UsageEvents.Event()
                 while (events.hasNextEvent()) {
@@ -79,7 +81,9 @@ internal class DiLink51ClusterMonitor(context: Context, private val onState: (Cl
     }
 
     companion object {
-        fun hasAccess(context: Context): Boolean = context.getSystemService(AppOpsManager::class.java)
-            .checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), context.packageName) == AppOpsManager.MODE_ALLOWED
+        @androidx.annotation.ChecksSdkIntAtLeast(api = 21)
+        fun hasAccess(context: Context): Boolean = Build.VERSION.SDK_INT >= 21 &&
+            (context.getSystemService(Context.APP_OPS_SERVICE) as? AppOpsManager)
+                ?.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), context.packageName) == AppOpsManager.MODE_ALLOWED
     }
 }

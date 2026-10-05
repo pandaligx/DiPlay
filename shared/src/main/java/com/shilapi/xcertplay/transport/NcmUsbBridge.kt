@@ -5,7 +5,9 @@ import android.hardware.usb.UsbEndpoint
 import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbRequest
+import android.os.Build
 import android.util.Log
+import androidx.annotation.RequiresApi
 import java.io.Closeable
 import java.nio.ByteBuffer
 import java.util.ArrayDeque
@@ -45,7 +47,9 @@ class NcmUsbBridge internal constructor(
     // section for the whole wait, which blocks ART's GC thread flip and, with it, every other USB
     // transfer (seen as ~0.8 s stalls of video and audio). A timed-out request stays queued, so no
     // data is lost between calls. This is the only requestWait() user on this connection.
-    private val directReadBuffer = ByteBuffer.allocateDirect(READ_CHUNK_BYTES)
+    private val directReadBuffer = ByteBuffer.allocateDirect(
+        if (Build.VERSION.SDK_INT >= 28) READ_CHUNK_BYTES else UsbTransferPolicy.LEGACY_MAX_BYTES,
+    )
     private var readRequest: UsbRequest? = null
     private var readQueued = false
     private val statusRunning = AtomicBoolean(statusEndpoint != null)
@@ -65,7 +69,13 @@ class NcmUsbBridge internal constructor(
             this.sequence.also { this.sequence = (this.sequence + 1) and 0xffff }
         }
         val block = Ntb16Codec.build(frame, sequence)
-        val transferred = connection.bulkTransfer(outEndpoint, block, block.size, timeoutMillis)
+        val transferred = if (Build.VERSION.SDK_INT >= 28) {
+            connection.bulkTransfer(outEndpoint, block, block.size, timeoutMillis)
+        } else {
+            UsbTransferPolicy.write(block.size, timeoutMillis, UsbTransferPolicy.LEGACY_MAX_BYTES) { offset, length, timeout ->
+                connection.bulkTransfer(outEndpoint, block, offset, length, timeout)
+            }
+        }
         // Before StartCarPlaySession the phone keeps the NCM data path NAKed. Android reports the
         // resulting timeout as -1; it is not a detach and later packets must be allowed to retry.
         if (transferred <= 0) {
@@ -219,6 +229,23 @@ class NcmUsbBridge internal constructor(
 
     private fun readChunk(timeoutMillis: Long): Int? {
         checkOpen()
+        if (Build.VERSION.SDK_INT < 26) {
+            // API19-25 has no timed requestWait. Keep the call bounded and let the existing NTB
+            // reassembler combine 16 KiB chunks; never replace it with an infinite async wait.
+            val transferred = try {
+                connection.bulkTransfer(inEndpoint, readBuffer, UsbTransferPolicy.LEGACY_MAX_BYTES,
+                    UsbTransferPolicy.timeout(timeoutMillis))
+            } catch (error: RuntimeException) {
+                throw failSession("NCM read failed", error)
+            }
+            checkOpen()
+            return transferred.takeIf { it > 0 }
+        }
+        return readChunkModern(timeoutMillis)
+    }
+
+    @RequiresApi(26)
+    private fun readChunkModern(timeoutMillis: Long): Int? {
         val request = try {
             // Publish and queue atomically with close(), so detach cannot miss a new request.
             synchronized(stateLock) {
@@ -313,7 +340,7 @@ class NcmUsbBridge internal constructor(
                 val firstClaimed = connection.claimInterface(first, true)
                 Log.i(
                     IphoneCarPlayConfiguration.TAG,
-                    "claim iface=${first.id}/${first.alternateSetting} class=${first.interfaceClass}" +
+                    "claim iface=${first.id}/${if (sameInterface) function.dataAlternateSetting else function.controlAlternateSetting} class=${first.interfaceClass}" +
                         " subclass=${first.interfaceSubclass} proto=${first.interfaceProtocol} ok=$firstClaimed",
                 )
                 if (!firstClaimed) {
@@ -326,7 +353,7 @@ class NcmUsbBridge internal constructor(
                     val dataClaimed = connection.claimInterface(function.data, true)
                     Log.i(
                         IphoneCarPlayConfiguration.TAG,
-                        "claim iface=${function.data.id}/${function.data.alternateSetting}" +
+                        "claim iface=${function.data.id}/${function.dataAlternateSetting}" +
                             " class=${function.data.interfaceClass} ok=$dataClaimed",
                     )
                     if (!dataClaimed) {
@@ -336,10 +363,10 @@ class NcmUsbBridge internal constructor(
                     }
                     claimed.add(function.data)
                 }
-                val altSelected = connection.setInterface(function.data)
+                val altSelected = selectUsbInterface(connection, function.data, function.dataAlternateSetting)
                 Log.i(
                     IphoneCarPlayConfiguration.TAG,
-                    "setInterface iface=${function.data.id}/${function.data.alternateSetting} ok=$altSelected",
+                    "setInterface iface=${function.data.id}/${function.dataAlternateSetting} ok=$altSelected",
                 )
                 if (!altSelected) {
                     throw IphoneUsbException.DeviceUnavailable(

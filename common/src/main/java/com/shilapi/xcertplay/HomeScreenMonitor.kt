@@ -5,6 +5,7 @@ import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import java.util.concurrent.Executors
@@ -43,7 +44,7 @@ internal class HomeScreenMonitor(context: Context, private val onChange: (Boolea
         foregroundListener = listener
 
         // UsageStatsManager poller fallback
-        if (DiLink51ClusterMonitor.hasAccess(context)) {
+        if (hasAccess(context)) {
             since = System.currentTimeMillis() - FIRST_LOOK_BACK_MILLIS
             newestTime = 0L
             newestPackage = null
@@ -75,8 +76,11 @@ internal class HomeScreenMonitor(context: Context, private val onChange: (Boolea
     private fun isHomePackage(pkg: String): Boolean = pkg in homePackages
 
     private fun poll() {
+        if (Build.VERSION.SDK_INT < 21) return
         val now = System.currentTimeMillis()
-        val events = runCatching { context.getSystemService(UsageStatsManager::class.java).queryEvents(since, now) }
+        val events = runCatching {
+            (context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager)?.queryEvents(since, now)
+        }
             .getOrNull() ?: return
         val event = UsageEvents.Event()
         while (events.hasNextEvent()) {
@@ -125,7 +129,8 @@ internal class HomeScreenMonitor(context: Context, private val onChange: (Boolea
         )
 
         // Accessibility alone is not a foreground source: this PR has no service dispatching events.
-        fun hasAccess(context: Context): Boolean = DiLink51ClusterMonitor.hasAccess(context)
+        fun hasAccess(context: Context): Boolean =
+            Build.VERSION.SDK_INT >= 21 && DiLink51ClusterMonitor.hasAccess(context)
 
         /** Query all launcher packages declared on the system. */
         fun queryHomePackages(context: Context): Set<String> {
@@ -134,7 +139,8 @@ internal class HomeScreenMonitor(context: Context, private val onChange: (Boolea
             runCatching {
                 val pm = context.packageManager
                 val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
-                val list = pm.queryIntentActivities(intent, PackageManager.MATCH_ALL)
+                val flags = if (Build.VERSION.SDK_INT >= 23) PackageManager.MATCH_ALL else 0
+                val list = pm.queryIntentActivities(intent, flags)
                 for (info in list) {
                     val pkg = info.activityInfo?.packageName
                     if (!pkg.isNullOrEmpty() && pkg != "android" && pkg != context.packageName) {

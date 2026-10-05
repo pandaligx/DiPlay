@@ -1,6 +1,5 @@
 package com.shilapi.xcertplay.transport
 
-import android.hardware.usb.UsbConfiguration
 import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbEndpoint
 import android.hardware.usb.UsbInterface
@@ -26,19 +25,21 @@ object NcmFunctionDiscovery {
         val statusIn: UsbEndpoint?,
         val bulkIn: UsbEndpoint,
         val bulkOut: UsbEndpoint,
+        val controlAlternateSetting: Int,
+        val dataAlternateSetting: Int,
     )
 
-    fun find(configuration: UsbConfiguration): NcmFunction? {
+    fun find(configuration: CarPlayUsbConfiguration): NcmFunction? {
         return findCdcNcm(configuration)
     }
 
-    private fun findCdcNcm(configuration: UsbConfiguration): NcmFunction? {
+    private fun findCdcNcm(configuration: CarPlayUsbConfiguration): NcmFunction? {
         val control = interfaces(configuration).firstOrNull {
             it.interfaceClass == CONTROL_CLASS && it.interfaceSubclass == CONTROL_SUBCLASS
         } ?: return null
         val data = interfaces(configuration)
             .filter { it.interfaceClass == DATA_CLASS && bulkEndpoints(it) != null }
-            .minByOrNull { if (it.alternateSetting == DATA_ALTERNATE_SETTING) 0 else 1 }
+            .minByOrNull { if (configuration.alternateSetting(it) == DATA_ALTERNATE_SETTING) 0 else 1 }
             ?: return null
         val endpoints = bulkEndpoints(data) ?: return null
         val statusIn = (0 until control.endpointCount)
@@ -47,11 +48,11 @@ object NcmFunctionDiscovery {
                 it.direction == UsbConstants.USB_DIR_IN &&
                     it.type == UsbConstants.USB_ENDPOINT_XFER_INT
             }
-        return NcmFunction(control, data, statusIn, endpoints.first, endpoints.second)
+        return NcmFunction(control, data, statusIn, endpoints.first, endpoints.second,
+            configuration.alternateSetting(control), configuration.alternateSetting(data))
     }
 
-    private fun interfaces(configuration: UsbConfiguration): List<UsbInterface> =
-        (0 until configuration.interfaceCount).map(configuration::getInterface)
+    private fun interfaces(configuration: CarPlayUsbConfiguration): List<UsbInterface> = configuration.interfaces
 
     private fun bulkEndpoints(usbInterface: UsbInterface): Pair<UsbEndpoint, UsbEndpoint>? {
         val endpoints = (0 until usbInterface.endpointCount).map(usbInterface::getEndpoint)

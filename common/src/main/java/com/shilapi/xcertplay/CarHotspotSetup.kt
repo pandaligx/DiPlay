@@ -21,8 +21,8 @@ internal object CarHotspotSetup {
         HOTSPOT("WRITE_SETTINGS"), BOOT_LAUNCH("SYSTEM_ALERT_WINDOW");
 
         fun granted(context: Context): Boolean = when (this) {
-            HOTSPOT -> Settings.System.canWrite(context)
-            BOOT_LAUNCH -> Settings.canDrawOverlays(context)
+            HOTSPOT -> LegacyUiCompat.canWriteSettings(context)
+            BOOT_LAUNCH -> LegacyUiCompat.canDrawOverlays(context)
         }
     }
 

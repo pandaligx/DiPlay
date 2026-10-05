@@ -1,5 +1,8 @@
 # DiPlay
 
+> Experimental `android-4.4` port of 0.2.12. A source-only API19 test APK builds;
+> head-unit connection tests are pending. See [status and limitations](docs/ANDROID-4.4-PORT.md).
+
 **CarPlay for compatible BYD Android head units.** Wired and wireless, with the familiar DiAuto interface. Independent app: `com.shihab.diplay`.
 
 > **BYD support scope:** These projects focus on BYD cars. They may work on other brands, but other brands are unsupported and there are no plans to add support or fix brand-specific incompatibilities.

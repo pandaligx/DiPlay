@@ -1,6 +1,15 @@
 # Building DiPlay
 
-Requirements: JDK 25, Android SDK 37, NDK 28.2.13676358 and the included Gradle wrapper.
+Requirements on the experimental `android-4.4` branch: JDK 25, Android SDK 37,
+NDK **25.2.9519653** and the included Gradle 9.5.0 wrapper. Build tools 36.0.0
+are provisioned by CI. NDK r26+ cannot target API 19. Do not replace these with
+the old machine's cached Gradle/AGP versions without a separate build migration.
+
+This branch has produced a source-only API19 debug APK. Head-unit connection
+validation is still pending. See [the compatibility and validation report](ANDROID-4.4-PORT.md)
+for actual test results and the wired transport limitation. Plain
+`assembleDebug` is the intended identity-free installation/diagnostic test APK;
+it cannot establish standalone CarPlay without separately authorized provisioning.
 
 ## Source and CI builds
 

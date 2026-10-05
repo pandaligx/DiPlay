@@ -81,6 +81,9 @@ class StandaloneHudDemoActivity : Activity() {
     }
 
     private fun validateTarget() {
+        if (Build.VERSION.SDK_INT < 28) {
+            throw IllegalStateException("This firmware-specific HUD test requires Android 9 or newer")
+        }
         check(packageName == "com.shihab.diplay.hudtest" && Process.myUid() >= 10000)
         check(Build.FINGERPRINT == "BYD-AUTO/IVI/IVI:13/TP1A.220624.014/eng.build20260722.221155:user/release-keys") {
             "This test is restricted to the inspected firmware"

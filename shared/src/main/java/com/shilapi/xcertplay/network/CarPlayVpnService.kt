@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.VpnService
 import android.os.Binder
+import android.os.Build
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
 import android.util.Log
@@ -86,6 +87,10 @@ class CarPlayVpnService : VpnService() {
         active.set(true)
         val generation = ++attachGeneration
         return try {
+            if (Build.VERSION.SDK_INT < 21) {
+                // Never replace upstream's application allowlist with an unrestricted VPN.
+                throw IOException("This build's wired NCM implementation requires per-app VPN routing on Android 5 (API 21) or newer; API 19 wired NCM is currently unsupported. Use Existing Wi-Fi / Same LAN or Car hotspot")
+            }
             val address = InetAddress.getByName(linkLocal)
             if (address !is Inet6Address || !address.isLinkLocalAddress) {
                 throw IllegalArgumentException("linkLocal must be a link-local IPv6 literal")

@@ -77,17 +77,16 @@ internal class MicrophoneUplink(
         }
         val bufferSize = maxOf(minBuffer * 2, config.frameBytes * 4)
         val nextRecorder = try {
-            AudioRecord.Builder()
-                .setAudioSource(source)
-                .setAudioFormat(
-                    AndroidAudioFormat.Builder()
-                        .setEncoding(AndroidAudioFormat.ENCODING_PCM_16BIT)
-                        .setSampleRate(config.sampleRate)
-                        .setChannelMask(channelMask)
-                        .build(),
-                )
-                .setBufferSizeInBytes(bufferSize)
-                .build()
+            // API3 constructor retains the same source, PCM format and buffer on KitKat.
+            AudioRecord(source, config.sampleRate, channelMask,
+                AndroidAudioFormat.ENCODING_PCM_16BIT, bufferSize)
+        } catch (error: SecurityException) {
+            // Permission can be revoked between the activity's check and recorder creation.
+            Log.w(TAG, "microphone permission denied", error)
+            stats.failure(MicrophoneFailureStage.RECORDER_CREATION, error)
+            nextEncoder?.close()
+            running.set(false)
+            return false
         } catch (error: Exception) {
             Log.e(TAG, "microphone recorder creation failed", error)
             stats.failure(MicrophoneFailureStage.RECORDER_CREATION, error)
@@ -186,7 +185,7 @@ internal class MicrophoneUplink(
         try {
             while (running.get()) {
                 stats.reading()
-                val count = recorder.read(readBuffer, 0, readBuffer.size, AudioRecord.READ_BLOCKING)
+                val count = recorder.read(readBuffer, 0, readBuffer.size)
                 stats.read(count)
                 if (count < 0) {
                     if (running.get()) {
@@ -263,7 +262,7 @@ internal class MicrophoneUplink(
         }
     }
 
-    private fun routeType(recorder: AudioRecord): Int? = runCatching { recorder.routedDevice?.type }.getOrNull()
+    private fun routeType(recorder: AudioRecord): Int? = runCatching { MediaPlatformCompat.routeType(recorder) }.getOrNull()
 
     override fun close() {
         if (!running.compareAndSet(true, false)) {

@@ -45,6 +45,21 @@ class VideoDecodeQueueTest {
         assertNull(queue.poll(0))
     }
 
+    @Test fun repeatedDiscardRetainsControlJobsAndRemovesOldRecoveryMarkers() {
+        val queue = VideoDecodeQueue(maxFrames = 1)
+        val config = VideoJob.Config(VideoCodec.H264, byteArrayOf(1))
+        val surface = VideoJob.SurfaceChanged(null)
+        queue.offer(config)
+        queue.offer(VideoJob.Frame(byteArrayOf(1)))
+        queue.offer(surface)
+        queue.offer(VideoJob.Frame(byteArrayOf(2))) // Adds a recovery marker.
+        queue.discardFrames()
+        queue.discardFrames()
+        assertSame(config, queue.poll(0))
+        assertSame(surface, queue.poll(0))
+        assertNull(queue.poll(0))
+    }
+
     @Test fun fullOutputMustBeDrainedWhileRetryingTheSameInput() {
         var heldOutputs = 2
         var dequeues = 0

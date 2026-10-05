@@ -45,15 +45,20 @@ internal class BydStandaloneHudOutput private constructor(context: Context) {
         fun create(context: Context): BydStandaloneHudOutput? =
             if (available(context)) BydStandaloneHudOutput(context) else null
 
+        @Suppress("DEPRECATION")
         fun diagnostics(context: Context): String = buildString {
             appendLine("standaloneHudAvailable=${available(context)} sdk=${Build.VERSION.SDK_INT}")
             appendLine("firmware=${Build.FINGERPRINT}")
             runCatching {
-                val info = context.packageManager.getPackageInfo(TARGET.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+                val flags = if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES
+                    else PackageManager.GET_SIGNATURES
+                val info = context.packageManager.getPackageInfo(TARGET.packageName, flags)
                 val receiver = context.packageManager.getReceiverInfo(TARGET, 0)
-                appendLine("receiver=${TARGET.flattenToString()} version=${info.longVersionCode} system=${(info.applicationInfo?.flags?.and(ApplicationInfo.FLAG_SYSTEM) ?: 0) != 0}")
+                val version = if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
+                val signers = if (Build.VERSION.SDK_INT >= 28) info.signingInfo?.apkContentsSigners else info.signatures
+                appendLine("receiver=${TARGET.flattenToString()} version=$version system=${(info.applicationInfo?.flags?.and(ApplicationInfo.FLAG_SYSTEM) ?: 0) != 0}")
                 appendLine("receiverEnabled=${receiver.enabled} exported=${receiver.exported} permission=${receiver.permission}")
-                info.signingInfo?.apkContentsSigners?.forEach { signer ->
+                signers?.forEach { signer ->
                     appendLine("signerSha256=" + MessageDigest.getInstance("SHA-256").digest(signer.toByteArray())
                         .joinToString("") { "%02x".format(it.toInt() and 255) })
                 }

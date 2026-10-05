@@ -10,6 +10,7 @@ import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Looper
+import androidx.annotation.RequiresApi
 import com.shilapi.xcertplay.orchestration.ManualHotspotValidation
 import com.shilapi.xcertplay.transport.Iap2WirelessSecurity
 import java.io.IOException
@@ -20,14 +21,35 @@ import java.util.concurrent.atomic.AtomicBoolean
 /** Attaches to an existing station network. Never creates an AP, joins Wi-Fi or changes routing. */
 class ExistingWifiManager(
     context: Context,
+    ssid: String,
+    passphrase: String,
+    onDiagnostic: (String) -> Unit = {},
+    onNetworkChanged: () -> Unit = {},
+) : WirelessHotspotManager {
+    // Keep Network and NetworkCallback out of the class loaded by Dalvik on API 19.
+    private val delegate: WirelessHotspotManager = if (Build.VERSION.SDK_INT >= 21) {
+        Api21ExistingWifiManager(context, ssid, passphrase, onDiagnostic, onNetworkChanged)
+    } else {
+        LegacyExistingWifiManager(context, ssid, passphrase, onDiagnostic, onNetworkChanged)
+    }
+
+    override fun start(timeoutMillis: Long) = delegate.start(timeoutMillis)
+    override fun validateReady() = delegate.validateReady()
+    override fun connectionDiagnosticSnapshot() = delegate.connectionDiagnosticSnapshot()
+    override fun close() = delegate.close()
+}
+
+@RequiresApi(21)
+private class Api21ExistingWifiManager(
+    context: Context,
     private val ssid: String,
     private val passphrase: String,
     private val onDiagnostic: (String) -> Unit = {},
     private val onNetworkChanged: () -> Unit = {},
 ) : WirelessHotspotManager {
-    private val connectivity = context.applicationContext.getSystemService(ConnectivityManager::class.java)
+    private val connectivity = context.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
         ?: throw IllegalStateException("ConnectivityManager is unavailable")
-    private val wifi = context.applicationContext.getSystemService(WifiManager::class.java)
+    private val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
         ?: throw IllegalStateException("WifiManager is unavailable")
     private val lock = Any()
     private val invalidated = AtomicBoolean()
@@ -115,7 +137,16 @@ class ExistingWifiManager(
                     hosts = addresses
                     interfaceIndex = iface.index
                     interfaceName = name
-                    connectivity.registerNetworkCallback(NetworkRequest.Builder().clearCapabilities()
+                    connectivity.registerNetworkCallback(NetworkRequest.Builder().apply {
+                        if (Build.VERSION.SDK_INT >= 30) {
+                            clearCapabilities()
+                        } else {
+                            // Before API 30 only these three capabilities are added by default.
+                            removeCapability(NetworkCapabilities.NET_CAPABILITY_TRUSTED)
+                            removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)
+                            removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                        }
+                    }
                         .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
                         .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN).build(), callback)
                     callbackRegistered = true

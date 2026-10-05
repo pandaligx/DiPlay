@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.hud
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -180,7 +181,7 @@ internal object BydClusterBridge {
     }
 
     private fun projectionDisplayPresent(appContext: Context): Boolean =
-        appContext.getSystemService(android.hardware.display.DisplayManager::class.java)
+        (appContext.getSystemService(android.content.Context.DISPLAY_SERVICE) as? android.hardware.display.DisplayManager)
             ?.displays?.any { it.name == DILINK3_DISPLAY } == true
 
     private const val DILINK3_DISPLAY = "fission_bg_xdjaVirtualSurface"
@@ -193,6 +194,8 @@ internal object BydClusterBridge {
     }
 
     // IS_BYD_MAP=true is required: the adapter drops foreign frames while it believes the stock map navigates.
+    // Stock clients use this hidden background-delivery flag; the public Intent flag list omits it.
+    @SuppressLint("WrongConstant")
     private fun baseIntent(keyType: Int) = Intent(AMAP_ACTION).apply {
         setPackage(adapter?.packageName ?: BydAmapAdapter.BYD.packageName)
         addFlags(FLAG_RECEIVER_INCLUDE_BACKGROUND)

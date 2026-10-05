@@ -15,7 +15,9 @@ internal class AudioBufferProgress(private val frameBytes: Int) {
         return (writtenBytes - playedFrames * frameBytes).coerceAtLeast(0)
     }
 
-    fun shouldRebuffer(isMedia: Boolean, playing: Boolean, underrunSinceStart: Boolean,
+    // KitKat has no hardware underrun counter (null). In that case exhaustion of the
+    // playback head and compressed queue is sufficient; queued PCM must never be discarded.
+    fun shouldRebuffer(isMedia: Boolean, playing: Boolean, underrunSinceStart: Boolean?,
         compressedQueueEmpty: Boolean, rawHead: Int): Boolean =
-        isMedia && playing && underrunSinceStart && compressedQueueEmpty && queuedBytes(rawHead) == 0L
+        isMedia && playing && underrunSinceStart != false && compressedQueueEmpty && queuedBytes(rawHead) == 0L
 }

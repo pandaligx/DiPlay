@@ -6,6 +6,7 @@ import android.net.nsd.NsdServiceInfo
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.util.Log
+import androidx.annotation.RequiresApi
 import com.shilapi.xcertplay.airplay.AirPlayConfig
 import com.shilapi.xcertplay.airplay.AirPlayIdentity
 import com.shilapi.xcertplay.airplay.AirPlayInfoPlist
@@ -19,6 +20,7 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.nio.charset.StandardCharsets
+import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.LinkedBlockingQueue
@@ -139,16 +141,18 @@ class CarPlayBonjour(
     private val config: AirPlayConfig,
     private val identity: AirPlayIdentity,
     private val advertisedHost: String? = null,
-    private val useInterfaceMdns: Boolean = false,
+    useInterfaceMdns: Boolean = false,
     private val onEvent: (CarPlayBonjourEvent) -> Unit = {},
     additionalAddresses: List<InetAddress> = emptyList(),
 ) : Closeable {
+    // NsdServiceInfo TXT attributes are unavailable on API 19. Keep the full protocol via JmDNS.
+    private val useInterfaceMdns = useInterfaceMdns || Build.VERSION.SDK_INT < 21
     private val nsdManager = (context.applicationContext ?: context)
         .getSystemService(Context.NSD_SERVICE) as NsdManager
     private val services = LinkedBlockingQueue<NsdServiceInfo>()
     private val interfaceServices = LinkedBlockingQueue<Pair<CarPlayBonjourEndpoint, InetAddress>>()
     private val discoveryEvents = LinkedBlockingQueue<CarPlayBonjourEvent.Discovery>(32)
-    private val seenServices = ConcurrentHashMap.newKeySet<String>()
+    private val seenServices = Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
     private val lifecycleLock = Any()
     private val localAdvertisedAddress = advertisedHostAddress()
     private val advertisedAddresses = (listOfNotNull(localAdvertisedAddress) + additionalAddresses).distinct()
@@ -166,8 +170,8 @@ class CarPlayBonjour(
             "bonjourAddressMismatch=${addressMismatchCount.get()} connectProbes=${probeCount.get()} " +
             "connectProbe2xx=${successfulProbeCount.get()} lastProbe=${lastProbe.get()} " +
             "mdnsFamilies=$publishedFamilies"
-    private val multicastLock = (context.applicationContext ?: context)
-        .getSystemService(WifiManager::class.java)
+    private val multicastLock = ((context.applicationContext ?: context)
+        .getSystemService(Context.WIFI_SERVICE) as WifiManager)
         .createMulticastLock("carplay-bonjour").apply { setReferenceCounted(false) }
 
     private var started = false
@@ -270,7 +274,7 @@ class CarPlayBonjour(
             started = true
             try {
                 multicastLock.acquire()
-                if (useInterfaceMdns) {
+                if (useInterfaceMdns || Build.VERSION.SDK_INT < 21) {
                     requireNotNull(localAdvertisedAddress) {
                         "Interface mDNS requires a local advertised address"
                     }
@@ -354,6 +358,7 @@ class CarPlayBonjour(
     }
 
     @Suppress("DEPRECATION")
+    @RequiresApi(21)
     private fun registerAirPlay() {
         val serviceInfo = NsdServiceInfo().apply {
             serviceName = config.deviceName
@@ -427,7 +432,7 @@ class CarPlayBonjour(
         if (port !in 1..65535) return
         val serviceName = resolved.serviceName ?: service.serviceName ?: return
         val host = address.hostAddress ?: return
-        val bluetoothId = resolved.attributes
+        val bluetoothId = (if (Build.VERSION.SDK_INT >= 21) resolved.attributes else null)
             ?.get("id")
             ?.let(::decodeTxtValue)
             ?.takeIf { it.isNotBlank() }

@@ -1,7 +1,11 @@
 package com.shilapi.xcertplay.network
 
+import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
+import android.os.Build
 import android.os.Bundle
 import android.os.ResultReceiver
 import android.provider.Settings
@@ -25,7 +29,11 @@ object CarHotspotTethering {
         CANCELLED("Hotspot startup was cancelled"),
     }
 
-    fun permitted(context: Context): Boolean = Settings.System.canWrite(context)
+    fun permitted(context: Context): Boolean = if (Build.VERSION.SDK_INT >= 23) {
+        Settings.System.canWrite(context)
+    } else {
+        context.checkCallingOrSelfPermission(Manifest.permission.WRITE_SETTINGS) == PackageManager.PERMISSION_GRANTED
+    }
 
     /** Blocking; serialize startup and connection requests, checking cancellation after acquiring the lock. */
     fun enable(
@@ -34,17 +42,19 @@ object CarHotspotTethering {
         timeoutMillis: Long = WirelessStartupPolicy.HOTSPOT_READY_MILLIS,
         log: (String) -> Unit,
     ): Result {
+        if (Build.VERSION.SDK_INT < 24) {
+            val result = when {
+                isCancelled() -> Result.CANCELLED
+                CarHotspotStatus.isEnabled(context) == true -> Result.READY
+                else -> Result.UNSUPPORTED
+            }
+            log("car hotspot auto-enable: ${result.diagnostic}; on Android 4.4, enable the hotspot in system settings")
+            return result
+        }
         val deadline = System.nanoTime() + timeoutMillis * 1_000_000L
         val observedAdbState = AtomicReference<Boolean?>()
         val startReflection: (ResultReceiver) -> Unit = { receiver ->
-            val service = ConnectivityManager::class.java.getDeclaredField("mService")
-                .apply { isAccessible = true }
-                .get(context.getSystemService(ConnectivityManager::class.java))
-                ?: throw NoSuchMethodException("Connectivity service unavailable")
-            service.javaClass.getMethod(
-                "startTethering", Int::class.javaPrimitiveType, ResultReceiver::class.java,
-                Boolean::class.javaPrimitiveType, String::class.java,
-            ).invoke(service, 0, receiver, false, context.packageName)
+            startLegacyTethering(context, receiver)
         }
         val startAdb: () -> Boolean = {
             val client = AtomicReference<LocalAdb?>()
@@ -68,7 +78,28 @@ object CarHotspotTethering {
             stateWithAdbObservation({ CarHotspotStatus.isEnabled(context) }, observedAdbState),
             startFallback = startAdb,
             start = startReflection,
-        ).also { log("car hotspot auto-enable: ${it.diagnostic}") }
+        ).also {
+            log("car hotspot auto-enable: ${it.diagnostic}")
+            if (it == Result.UNSUPPORTED) log("Enable the car hotspot in system settings; automatic startup is unavailable on this platform or build")
+        }
+    }
+
+    // Keep the upstream vendor path only for older OS AND older-target builds. Android 37 or
+    // target 37 must use the existing authorized ADB/manual fallback without touching mService.
+    // This suppression is limited to that legacy field access; both guards precede reflection.
+    @SuppressLint("SoonBlockedPrivateApi")
+    private fun startLegacyTethering(context: Context, receiver: ResultReceiver) {
+        if (Build.VERSION.SDK_INT >= 37 || context.applicationInfo.targetSdkVersion >= 37) {
+            throw NoSuchMethodException("Legacy hotspot control is unavailable; enable the car hotspot in system settings")
+        }
+        val service = ConnectivityManager::class.java.getDeclaredField("mService")
+            .apply { isAccessible = true }
+            .get(context.getSystemService(Context.CONNECTIVITY_SERVICE))
+            ?: throw NoSuchMethodException("Connectivity service unavailable")
+        service.javaClass.getMethod(
+            "startTethering", Int::class.javaPrimitiveType, ResultReceiver::class.java,
+            Boolean::class.javaPrimitiveType, String::class.java,
+        ).invoke(service, 0, receiver, false, context.packageName)
     }
 
     /** An ADB observation supplements hidden platform status, but never overrides a current off state. */

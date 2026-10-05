@@ -1,6 +1,8 @@
 package com.shilapi.xcertplay
 
 import android.app.Activity
+import android.app.ActivityManager
+import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
@@ -8,6 +10,7 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Bundle
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -34,6 +37,8 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.appcompat.content.res.AppCompatResources
 import androidx.media3.exoplayer.hls.HlsManifest
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
@@ -85,7 +90,18 @@ class CarPlayVideoActivity : Activity() {
         }
         val http = DefaultHttpDataSource.Factory().setAllowCrossProtocolRedirects(true)
         val sources = IphoneResolvingDataSource.Factory(DefaultDataSource.Factory(this, http))
-        player = ExoPlayer.Builder(this).setMediaSourceFactory(DefaultMediaSourceFactory(sources)).build()
+        val builder = ExoPlayer.Builder(this).setMediaSourceFactory(DefaultMediaSourceFactory(sources))
+        val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.KITKAT || activityManager?.isLowRamDevice == true) {
+            // Keep the optional video player within a modest allocation budget on 1 GB head units.
+            // This limits compressed buffering, not the platform decoder's own allocations.
+            builder.setLoadControl(DefaultLoadControl.Builder()
+                .setBufferDurationsMs(2_000, 5_000, 500, 1_000)
+                .setTargetBufferBytes(8 * 1024 * 1024)
+                .setPrioritizeTimeOverSizeThresholds(false)
+                .build())
+        }
+        player = builder.build()
         player.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY && !prepared) {
@@ -137,7 +153,7 @@ class CarPlayVideoActivity : Activity() {
             setOnClickListener { finish() }
         }
         fun round(icon: Int, label: String, onClick: () -> Unit) = ImageView(this).apply {
-            setImageResource(icon)
+            setImageDrawable(AppCompatResources.getDrawable(context, icon))
             setColorFilter(Color.WHITE)
             contentDescription = label
             scaleType = ImageView.ScaleType.FIT_CENTER
@@ -158,15 +174,17 @@ class CarPlayVideoActivity : Activity() {
         fun timeText() = TextView(this).apply {
             setTextColor(Color.WHITE)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
-            fontFeatureSettings = "tnum"
+            if (Build.VERSION.SDK_INT >= 21) fontFeatureSettings = "tnum"
         }
         position = timeText()
         length = timeText()
         timeBar = SeekBar(this).apply {
-            progressTintList = ColorStateList.valueOf(Color.WHITE)
-            thumbTintList = ColorStateList.valueOf(Color.WHITE)
-            secondaryProgressTintList = ColorStateList.valueOf(0x80FFFFFF.toInt())
-            progressBackgroundTintList = ColorStateList.valueOf(0x4DFFFFFF)
+            if (Build.VERSION.SDK_INT >= 21) {
+                progressTintList = ColorStateList.valueOf(Color.WHITE)
+                thumbTintList = ColorStateList.valueOf(Color.WHITE)
+                secondaryProgressTintList = ColorStateList.valueOf(0x80FFFFFF.toInt())
+                progressBackgroundTintList = ColorStateList.valueOf(0x4DFFFFFF)
+            }
             minimumHeight = dp(48)
             setPadding(dp(20), dp(16), dp(20), dp(16))
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
@@ -222,7 +240,8 @@ class CarPlayVideoActivity : Activity() {
 
     private fun updatePlayPause() {
         val playing = CarPlayVideo.playing
-        playPause.setImageResource(if (playing) Media3R.drawable.exo_icon_pause else Media3R.drawable.exo_icon_play)
+        playPause.setImageDrawable(AppCompatResources.getDrawable(this,
+            if (playing) Media3R.drawable.exo_icon_pause else Media3R.drawable.exo_icon_play))
         playPause.contentDescription = getString(if (playing) R.string.video_pause else R.string.video_play)
     }
 
@@ -315,7 +334,13 @@ class CarPlayVideoActivity : Activity() {
         .joinToString(" <- ") { "${it.javaClass.simpleName}(${it.message?.replace(Regex("\\w+://\\S+"), "<url>")})" }
 
     private fun playbackNetworkSummary(): String {
-        val manager = getSystemService(ConnectivityManager::class.java)
+        val manager = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return "network=unavailable"
+        if (Build.VERSION.SDK_INT < 23) {
+            @Suppress("DEPRECATION")
+            val active = manager.activeNetworkInfo
+            return "network=${active?.typeName ?: "none"} connected=${active?.isConnected == true} validated=unavailable"
+        }
         val network = manager?.activeNetwork
         val capabilities = network?.let(manager::getNetworkCapabilities)
         if (network == null || capabilities == null) return "network=none"

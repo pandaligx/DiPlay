@@ -45,8 +45,8 @@ class ExistingWifiManagerTest {
 
     @Before fun setup() {
         `when`(context.applicationContext).thenReturn(context)
-        `when`(context.getSystemService(ConnectivityManager::class.java)).thenReturn(connectivity)
-        `when`(context.getSystemService(WifiManager::class.java)).thenReturn(wifi)
+        `when`(context.getSystemService(Context.CONNECTIVITY_SERVICE)).thenReturn(connectivity)
+        `when`(context.getSystemService(Context.WIFI_SERVICE)).thenReturn(wifi)
         `when`(connectivity.allNetworks).thenReturn(arrayOf(network))
         // No INTERNET or VALIDATED capability: neither is a requirement for local CarPlay.
         doReturn(capabilities(NetworkCapabilities.TRANSPORT_WIFI)).`when`(connectivity).getNetworkCapabilities(network)

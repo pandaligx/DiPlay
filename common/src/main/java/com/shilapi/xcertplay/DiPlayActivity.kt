@@ -163,7 +163,7 @@ class DiPlayActivity : ComponentActivity() {
         languagePreferenceAtCreate = AppLocale.preference(this)
         com.shilapi.xcertplay.hud.BydNavigationOutputs.onAppOpened(applicationContext)
         WindowCompat.setDecorFitsSystemWindows(window, true)
-        window.statusBarColor = BG; window.navigationBarColor = BG
+        if (Build.VERSION.SDK_INT >= 21) { window.statusBarColor = BG; window.navigationBarColor = BG }
         WindowInsetsControllerCompat(window, window.decorView).apply {
             isAppearanceLightStatusBars = false
             hide(WindowInsetsCompat.Type.statusBars())
@@ -201,7 +201,8 @@ class DiPlayActivity : ComponentActivity() {
     }
     override fun onConfigurationChanged(newConfig: Configuration) { super.onConfigurationChanged(newConfig); render() }
     private fun openOverlayPermission() {
-        val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
+        val action = if (Build.VERSION.SDK_INT >= 23) Settings.ACTION_MANAGE_OVERLAY_PERMISSION else Settings.ACTION_APPLICATION_DETAILS_SETTINGS
+        val intent = Intent(action, Uri.parse("package:$packageName"))
         if (runCatching { startActivity(intent) }.isFailure) {
             android.widget.Toast.makeText(this, R.string.center_map_no_permission_screen, android.widget.Toast.LENGTH_LONG).show()
         }
@@ -374,11 +375,11 @@ class DiPlayActivity : ComponentActivity() {
         val wide = resources.configuration.screenWidthDp >= 850
         val body = column()
         val left = column()
-        left.addView(label(getString(R.string.your_phone_your_drive), 12, ACCENT, true).apply { letterSpacing = .16f })
+        left.addView(label(getString(R.string.your_phone_your_drive), 12, ACCENT, true).apply { if (Build.VERSION.SDK_INT >= 21) letterSpacing = .16f })
         left.addView(label(getString(R.string.a_familiar_drive), if (wide) 42 else 36, TEXT, true).apply { setPadding(0, dp(12), 0, dp(10)) })
         left.addView(label(getString(R.string.your_maps_music_and_conversations_carplay_right_here_on_yo), 19, MUTED))
         val card = card()
-        card.addView(label(getString(R.string.wireless_carplay), 12, ACCENT, true).apply { letterSpacing = .12f })
+        card.addView(label(getString(R.string.wireless_carplay), 12, ACCENT, true).apply { if (Build.VERSION.SDK_INT >= 21) letterSpacing = .12f })
         status = label(getString(R.string.ready_when_you_are), 24, TEXT, true).apply { setPadding(0, dp(10), 0, dp(16)) }
         card.addView(status)
         connectButton = button(getString(R.string.connect_phone), true) {
@@ -425,7 +426,7 @@ class DiPlayActivity : ComponentActivity() {
         right.addView(label(getString(R.string.plug_your_iphone_into_a_usb_data_port_allow_carplay_when_y), 14, MUTED).apply { gravity = Gravity.CENTER; setPadding(dp(8), dp(10), dp(8), dp(24)) })
         right.addView(button(getString(R.string.settings), false) { page = "settings"; render() }, matchButton())
         right.addView(label(getString(R.string.make_diplay_feel_right_for_your_car), 14, MUTED).apply { gravity = Gravity.CENTER; setPadding(0, dp(10), 0, dp(24)) })
-        right.addView(label("${getString(R.string.home_public_preview)}${version()}", 12, MUTED).apply { letterSpacing = .08f })
+        right.addView(label("${getString(R.string.home_public_preview)}${version()}", 12, MUTED).apply { if (Build.VERSION.SDK_INT >= 21) letterSpacing = .08f })
         if (wide) {
             // Both rows share column widths. The USB button starts at the wireless
             // card's top edge, independently of hero wrapping or font scaling.
@@ -471,6 +472,12 @@ class DiPlayActivity : ComponentActivity() {
             card.addView(button(getString(R.string.open_connection_setup), false) { page = "connection"; render() }, matchButton(12, 60))
         }
         section(content, getString(R.string.diagnostics), R.drawable.ic_dp_diagnostics) { card ->
+            card.addView(button(getString(R.string.device_capabilities), false) {
+                Thread({
+                    val report = DeviceCapabilityReport.create(applicationContext)
+                    runOnUiThread { if (!isFinishing && !isDestroyed) showDiagnosticReport(report) }
+                }, "diplay-device-capabilities").start()
+            }, matchButton(10, 60))
             exportButton = button(if (exportInProgress) getString(R.string.saving_report) else getString(R.string.save_diagnostic_report), false) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) exportDiagnostics()
                 else chooseReportDestination()
@@ -543,7 +550,7 @@ class DiPlayActivity : ComponentActivity() {
                 AirPlayPersistence.saveMediaBufferMillis(this, bufferPresets[it])
             }
             choice(card, getString(R.string.frame_rate), listOf(getString(R.string.s_30_fps_lighter_load), getString(R.string.s_60_fps_smoother_motion)), if (AirPlayPersistence.loadFps(this) == 60) 1 else 0) { AirPlayPersistence.saveFps(this, if (it == 1) 60 else 30) }
-            toggle(card, getString(R.string.efficient_video), getString(R.string.use_hevc_leave_off_for_the_widest_head_unit_compatibility), AirPlayPersistence.loadHevcEnabled(this)) { AirPlayPersistence.saveHevcEnabled(this, it) }
+            toggle(card, getString(R.string.efficient_video), getString(R.string.use_hevc_leave_off_for_the_widest_head_unit_compatibility), AirPlayPersistence.loadHevcEnabled(this), enabled = Build.VERSION.SDK_INT >= 21) { AirPlayPersistence.saveHevcEnabled(this, it) }
             toggle(card, getString(R.string.right_hand_drive), getString(R.string.place_carplay_s_controls_closer_to_the_driver), AirPlayPersistence.loadRightHandDrive(this)) { AirPlayPersistence.saveRightHandDrive(this, it) }
             addSystemBarControls(
                 hideTopBar = AirPlayPersistence.loadHideTopBar(this),
@@ -1298,7 +1305,7 @@ class DiPlayActivity : ComponentActivity() {
             slider = SeekBar(context).apply {
                 max = steps.lastIndex
                 progress = steps.indexOf(current).coerceIn(steps.indices)
-                minHeight = dp(44)
+                minimumHeight = dp(44)
                 setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                     override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                         val value = steps[progress.coerceIn(steps.indices)]
@@ -1334,7 +1341,7 @@ class DiPlayActivity : ComponentActivity() {
             setPadding(0, dp(16), 0, dp(16))
         })
         body.addView(button(getString(R.string.copy_command), false) {
-            getSystemService(android.content.ClipboardManager::class.java).setPrimaryClip(
+            (getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(
                 android.content.ClipData.newPlainText(getString(R.string.clipboard_usage_access), command))
             toast(getString(R.string.copied_to_the_car_clipboard_run_the_command_on_your_comput))
         }, matchButton(0, 56))
@@ -2133,7 +2140,7 @@ class DiPlayActivity : ComponentActivity() {
         BydOutputSettings.wheelSpeedToIphone(this) || BydOutputSettings.videoWhileParked(this)
 
     private fun hasPreciseLocation() =
-        checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        androidx.core.content.ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
     // The cluster screen is described at connection time, so a running session reconnects over
     // its current link. The position choices need no call: getString(R.string.apply_and_reconnect) already does it.
@@ -2483,7 +2490,7 @@ class DiPlayActivity : ComponentActivity() {
             pendingWireless = true; choosePhone(); return
         }
         val preferences = getSharedPreferences("diplay", MODE_PRIVATE)
-        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED && !preferences.getBoolean("notification_asked", false)) {
+        if (Build.VERSION.SDK_INT >= 33 && androidx.core.content.ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED && !preferences.getBoolean("notification_asked", false)) {
             preferences.edit().putBoolean("notification_asked", true).apply()
             notificationTransport = wireless
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -2499,18 +2506,27 @@ class DiPlayActivity : ComponentActivity() {
     private fun openProjection() {
         startActivity(Intent(this, CarPlayHostActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
     }
+    private data class PairedPhone(val address: String, val name: String?)
+
     private fun choosePhone() {
-        if (Build.VERSION.SDK_INT >= 31 && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+        if (Build.VERSION.SDK_INT >= 31 && androidx.core.content.ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
             bluetoothPermission.launch(Manifest.permission.BLUETOOTH_CONNECT); return
         }
-        val adapter = getSystemService(BluetoothManager::class.java)?.adapter
-        if (adapter == null || !adapter.isEnabled) {
-            AlertDialog.Builder(this).setTitle(getString(R.string.turn_on_bluetooth))
-                .setMessage(getString(R.string.enable_the_car_s_bluetooth_and_pair_your_iphone_first))
-                .setPositiveButton(getString(R.string.open_bluetooth)) { _, _ -> openSystem(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
-                .setNegativeButton(getString(R.string.later), null).show(); return
+        // Snapshot protected properties while permission is granted. The dialog can outlive a
+        // permission change, so its click callback must not read BluetoothDevice properties again.
+        val devices = try {
+            val adapter = (getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
+            if (adapter == null || !adapter.isEnabled) {
+                AlertDialog.Builder(this).setTitle(getString(R.string.turn_on_bluetooth))
+                    .setMessage(getString(R.string.enable_the_car_s_bluetooth_and_pair_your_iphone_first))
+                    .setPositiveButton(getString(R.string.open_bluetooth)) { _, _ -> openSystem(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
+                    .setNegativeButton(getString(R.string.later), null).show(); return
+            }
+            adapter.bondedDevices.map { PairedPhone(it.address, it.name) }.sortedBy { it.name ?: "" }
+        } catch (_: SecurityException) {
+            permissionHelp(getString(R.string.nearby_devices), getString(R.string.allow_nearby_devices_so_diplay_can_connect_to_your_paired))
+            return
         }
-        val devices = runCatching { adapter.bondedDevices.sortedBy { it.name ?: "" } }.getOrDefault(emptyList())
         if (devices.isEmpty()) {
             AlertDialog.Builder(this).setTitle(getString(R.string.pair_your_iphone))
                 .setMessage(getString(R.string.on_your_iphone_open_settings_bluetooth_and_pair_with_the_c))
@@ -2555,21 +2571,21 @@ class DiPlayActivity : ComponentActivity() {
     }
 
     private fun resetWirelessGroup() {
-        val manager = getSystemService(android.net.wifi.p2p.WifiP2pManager::class.java)
+        val manager = (getSystemService(Context.WIFI_P2P_SERVICE) as? android.net.wifi.p2p.WifiP2pManager)
         if (manager == null) { toast(getString(R.string.this_head_unit_does_not_support_wi_fi_direct)); return }
         val channel = manager.initialize(this, mainLooper, null)
         try {
             manager.requestGroupInfo(channel) { group ->
-                if (group == null) { channel.close(); connect(true); return@requestGroupInfo }
+                if (group == null) { if (Build.VERSION.SDK_INT >= 27) channel.close(); connect(true); return@requestGroupInfo }
                 manager.removeGroup(channel, object : android.net.wifi.p2p.WifiP2pManager.ActionListener {
                     override fun onSuccess() {
                         val deadline = android.os.SystemClock.elapsedRealtime() + 4000
                         fun waitUntilRemoved() {
                             manager.requestGroupInfo(channel) { remaining ->
                                 when {
-                                    remaining == null -> { channel.close(); if (!isFinishing && !isDestroyed) connect(true) }
+                                    remaining == null -> { if (Build.VERSION.SDK_INT >= 27) channel.close(); if (!isFinishing && !isDestroyed) connect(true) }
                                     android.os.SystemClock.elapsedRealtime() >= deadline -> {
-                                        channel.close(); toast(getString(R.string.wi_fi_direct_is_still_busy_close_the_other_projection_app))
+                                        if (Build.VERSION.SDK_INT >= 27) channel.close(); toast(getString(R.string.wi_fi_direct_is_still_busy_close_the_other_projection_app))
                                     }
                                     else -> handler.postDelayed({ waitUntilRemoved() }, 200)
                                 }
@@ -2577,11 +2593,11 @@ class DiPlayActivity : ComponentActivity() {
                         }
                         waitUntilRemoved()
                     }
-                    override fun onFailure(reason: Int) { channel.close(); toast(getString(R.string.could_not_reset_wi_fi_direct_close_the_other_projection_ap)) }
+                    override fun onFailure(reason: Int) { if (Build.VERSION.SDK_INT >= 27) channel.close(); toast(getString(R.string.could_not_reset_wi_fi_direct_close_the_other_projection_ap)) }
                 })
             }
         } catch (_: SecurityException) {
-            channel.close(); permissionHelp(getString(R.string.wireless_permissions), getString(R.string.allow_nearby_devices_and_on_older_android_versions_locatio))
+            if (Build.VERSION.SDK_INT >= 27) channel.close(); permissionHelp(getString(R.string.wireless_permissions), getString(R.string.allow_nearby_devices_and_on_older_android_versions_locatio))
         }
     }
 
@@ -2641,6 +2657,7 @@ class DiPlayActivity : ComponentActivity() {
                     appendLine("DiPlay ${version()} · private beta diagnostic report")
                     appendLine("Android ${Build.VERSION.RELEASE} / API ${Build.VERSION.SDK_INT}")
                     appendLine("Head unit: ${Build.MANUFACTURER} ${Build.MODEL}")
+                    appendLine(DeviceCapabilityReport.create(appContext))
                     appendLine("Connection: ${if (AirPlayPersistence.loadWirelessEnabled(appContext)) "wireless" else "USB"}")
                     appendLine("Authentication: local experimental beta identity; no remote fallback")
                     appendLine("CarPlay setup: ${if (setupError == null) "ready" else "authentication unavailable"}")
@@ -2649,6 +2666,9 @@ class DiPlayActivity : ComponentActivity() {
                     appendLine("Saved resolution preference (may differ from active session): ${AirPlayPersistence.loadDisplayScalePercent(appContext)}%")
                     appendLine("Session: ${if (CarPlayBackgroundSession.active) "active" else if (CarPlayBackgroundSession.hasSession()) "connecting" else "stopped"}")
                     appendLine("Head-unit board: ${Build.BOARD}; hardware: ${Build.HARDWARE}; build: ${Build.DISPLAY}")
+                    appendLine()
+                    appendLine("--- Wireless prerequisites and observed startup ---")
+                    appendLine(WirelessDiagnosticReport.create(appContext))
                     appendLine()
                     appendLine("--- Current cluster display diagnostics (even when disabled) ---")
                     appendLine(ClusterMapPresentation.diagnosticReport(appContext))
@@ -2785,7 +2805,7 @@ class DiPlayActivity : ComponentActivity() {
             val state = candidate?.state ?: AudioTrack.STATE_UNINITIALIZED
             candidate?.let { runCatching { it.release() } }
             Log.w("DiPlay", "playTestTone streamType=$streamType unavailable", error)
-            toast(getString(R.string.audio_stream_unavailable, streamType, state))
+            toast(getString(R.string.audio_stream_unavailable, streamType, state.toString()))
             return
         }
         Log.i("DiPlay", "playTestTone streamType=$streamType state=${track.state} playState=${track.playState}")
@@ -2806,11 +2826,7 @@ class DiPlayActivity : ComponentActivity() {
         val target = channelButtons.getOrNull(index) ?: return
         target.isSelected = selected
         target.setTextColor(if (selected) BG else TEXT)
-        target.background = android.graphics.drawable.RippleDrawable(
-            ColorStateList.valueOf(0x336F9FD9),
-            rounded(if (selected) ACCENT else SURFACE, if (selected) ACCENT else BORDER),
-            null
-        )
+        target.background = LegacyUiCompat.pressedBackground(rounded(if (selected) ACCENT else SURFACE, if (selected) ACCENT else BORDER), 0x336F9FD9)
     }
 
     private fun channelSelector(): ViewGroup {
@@ -2826,7 +2842,7 @@ class DiPlayActivity : ComponentActivity() {
                 isAllCaps = false
                 textSize = 16f
                 minHeight = dp(48)
-                stateListAnimator = null
+                if (Build.VERSION.SDK_INT >= 21) stateListAnimator = null
                 setOnClickListener {
                     val previous = navigationStreamType
                     navigationStreamType = i
@@ -2840,7 +2856,13 @@ class DiPlayActivity : ComponentActivity() {
             val params = GridLayout.LayoutParams().apply {
                 width = 0
                 height = dp(48)
-                columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
+                if (Build.VERSION.SDK_INT >= 21) {
+                    columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
+                } else {
+                    // API 19 GridLayout has no column weights.
+                    width = ((resources.displayMetrics.widthPixels - dp(120)) / 7).coerceAtLeast(dp(40))
+                    columnSpec = GridLayout.spec(GridLayout.UNDEFINED)
+                }
                 setMargins(dp(4), dp(4), dp(4), dp(4))
             }
             grid.addView(btn, params)
@@ -2864,7 +2886,7 @@ class DiPlayActivity : ComponentActivity() {
         val card = card()
         val heading = row().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, 0, 0, dp(16)) }
         if (icon != null) heading.addView(ImageView(this).apply {
-            setImageResource(icon); imageTintList = ColorStateList.valueOf(ACCENT)
+            setImageDrawable(androidx.appcompat.content.res.AppCompatResources.getDrawable(context, icon)); setColorFilter(ACCENT)
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }, LinearLayout.LayoutParams(dp(28), dp(28)).apply { marginEnd = dp(12) })
         heading.addView(label(title, 22, TEXT, true), LinearLayout.LayoutParams(0, -2, 1f))
@@ -2876,7 +2898,7 @@ class DiPlayActivity : ComponentActivity() {
         val line = row().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(12), 0, dp(12)) }
         val text = column(); text.addView(label(title, 18, TEXT, true)); text.addView(label(description, 14, MUTED).apply { setPadding(0, dp(6), dp(16), 0) })
         line.addView(text, LinearLayout.LayoutParams(0, -2, 1f))
-        val control = Switch(this).apply { contentDescription = title; isChecked = value; isEnabled = enabled; minHeight = dp(56); buttonTintList = ColorStateList.valueOf(ACCENT); setOnCheckedChangeListener { _, checked -> save(checked) } }
+        val control = Switch(this).apply { contentDescription = title; isChecked = value; isEnabled = enabled; minHeight = dp(56); if (Build.VERSION.SDK_INT >= 21) buttonTintList = ColorStateList.valueOf(ACCENT); setOnCheckedChangeListener { _, checked -> save(checked) } }
         line.addView(control)
         parent.addView(line)
         return control
@@ -2914,8 +2936,8 @@ class DiPlayActivity : ComponentActivity() {
     private fun button(title: String, primary: Boolean, click: () -> Unit) = Button(this).apply {
         text = title; isAllCaps = false; textSize = 18f; setTextColor(if (primary) BG else TEXT)
         typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-        background = android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(0x336F9FD9), rounded(if (primary) ACCENT else SURFACE, if (primary) ACCENT else BORDER), null)
-        setPadding(dp(16), 0, dp(16), 0); minHeight = dp(56); stateListAnimator = null
+        background = LegacyUiCompat.pressedBackground(rounded(if (primary) ACCENT else SURFACE, if (primary) ACCENT else BORDER), 0x336F9FD9)
+        setPadding(dp(16), 0, dp(16), 0); minHeight = dp(56); if (Build.VERSION.SDK_INT >= 21) stateListAnimator = null
         setOnClickListener { click() }
     }
     private fun rounded(color: Int, stroke: Int) = GradientDrawable().apply { setColor(color); cornerRadius = dp(20).toFloat(); setStroke(dp(1), stroke) }

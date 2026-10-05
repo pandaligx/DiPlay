@@ -177,9 +177,9 @@ class CarPlayController(
     private val appContext = context.applicationContext
     private val diagnosticAttempt = diagnosticAttempts.incrementAndGet()
     private val diagnosticRun = AtomicInteger()
-    private val usbManager = context.getSystemService(UsbManager::class.java)
+    private val usbManager = context.getSystemService(Context.USB_SERVICE) as UsbManager
     private val bluetoothAdapter =
-        appContext.getSystemService(BluetoothManager::class.java)?.adapter
+        (appContext.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
     private val iphoneHost = IphoneUsbHost(
         appContext,
         usbManager,
@@ -247,7 +247,9 @@ class CarPlayController(
     @Volatile private var firstTcpWatchdog: FirstTcpWatchdog? = null
     private val startupTimer = java.util.concurrent.ScheduledThreadPoolExecutor(1) { task ->
         Thread(task, "diplay-first-tcp-timeout").apply { isDaemon = true }
-    }.apply { removeOnCancelPolicy = true }
+    }.apply {
+        if (Build.VERSION.SDK_INT >= 21) removeOnCancelPolicy = true
+    }
     @Volatile private var wirelessDiagnostics: WirelessStartupDiagnostics? = null
     @Volatile private var bluetoothSocket: BluetoothSocket? = null
     @Volatile private var bluetoothStream: BluetoothRfcommDuplexStream? = null
@@ -718,7 +720,7 @@ class CarPlayController(
         availabilityPollGeneration.incrementAndGet()
         phase = Phase.MFI
         onStatus(CarPlayStatus.DiscoveringMfi)
-        val offlineDirectory = java.io.File(appContext.noBackupFilesDir, LocalMfiAuthenticationClient.DIRECTORY)
+        val offlineDirectory = java.io.File(androidx.core.content.ContextCompat.getNoBackupFilesDir(appContext), LocalMfiAuthenticationClient.DIRECTORY)
         when (config.mfiTarget) {
             MfiTarget.LOCAL -> openLocalMfi(offlineDirectory)
             MfiTarget.USB_CH341 -> {
@@ -1093,7 +1095,11 @@ class CarPlayController(
                 listener = listenerIdentity,
                 schedule = { delay, action ->
                     val future = startupTimer.schedule({ action() }, delay, TimeUnit.MILLISECONDS)
-                    val cancel: () -> Unit = { future.cancel(false); Unit }
+                    val cancel: () -> Unit = {
+                        future.cancel(false)
+                        // KitKat has no remove-on-cancel policy; remove retained cancelled tasks.
+                        if (Build.VERSION.SDK_INT < 21) startupTimer.purge()
+                    }
                     cancel
                 },
                 onTimeout = {
@@ -1173,7 +1179,7 @@ class CarPlayController(
             val device = selectWirelessBluetoothDevice(adapter)
             val hostBluetoothMac = accessoryBluetoothMac(adapter)
             debugLog(
-                "wireless selected Bluetooth target name=${device.name ?: "unknown"} " +
+                "wireless selected Bluetooth target name=${bluetoothDeviceName(device) ?: "unknown"} " +
                     "address=${device.address} localBt=$hostBluetoothMac",
             )
             val wirelessAirPlayConfig = airPlayConfig.copy(
@@ -1808,20 +1814,25 @@ class CarPlayController(
     }
 
     private fun openNcm(device: UsbDevice): NcmUsbBridge {
-        val configuration = IphoneCarPlayConfiguration.find(device)
-            ?: throw IphoneUsbException.Protocol(
-                "iPhone exposes no CarPlay configuration for NCM",
-            )
-        val function = NcmFunctionDiscovery.find(configuration)
-            ?: throw IphoneUsbException.Protocol("iPhone configuration does not expose an NCM function")
-        debugLog(
-            "ncm config=${configuration.id} control=${function.control.id}/${function.control.alternateSetting}" +
-                " data=${function.data.id}/${function.data.alternateSetting}" +
-                " status=${function.statusIn?.address?.let { "0x${it.toString(16)}" } ?: "none"}" +
-                " in=0x${function.bulkIn.address.toString(16)} out=0x${function.bulkOut.address.toString(16)}",
-        )
         val connection = usbManager.openDevice(device)
             ?: throw IphoneUsbException.DeviceUnavailable("Could not open the iPhone NCM connection")
+        val function = try {
+            val configuration = IphoneCarPlayConfiguration.find(device, connection.rawDescriptors)
+                ?: throw IphoneUsbException.Protocol("iPhone exposes no CarPlay configuration for NCM")
+            val function = NcmFunctionDiscovery.find(configuration)
+                ?: throw IphoneUsbException.Protocol("iPhone configuration does not expose an NCM function")
+            debugLog(
+                "ncm config=${configuration.id} control=${function.control.id}/${function.controlAlternateSetting}" +
+                    " data=${function.data.id}/${function.dataAlternateSetting}" +
+                    " status=${function.statusIn?.address?.let { "0x${it.toString(16)}" } ?: "none"}" +
+                    " in=0x${function.bulkIn.address.toString(16)} out=0x${function.bulkOut.address.toString(16)}",
+            )
+            function
+        } catch (error: Throwable) {
+            connection.close()
+            throw error
+        }
+        // open() owns the connection (and closes it on failure) from this point onward.
         return NcmUsbBridge.open(connection, function)
     }
 
@@ -2114,13 +2125,17 @@ class CarPlayController(
     }
 
     private fun selectWirelessBluetoothDevice(adapter: BluetoothAdapter): BluetoothDevice {
-        val bonded = adapter.bondedDevices.orEmpty()
+        val bonded = try {
+            adapter.bondedDevices.orEmpty()
+        } catch (error: SecurityException) {
+            throw IOException("Bluetooth permission is unavailable; allow nearby devices and retry", error)
+        }
         config.wirelessBluetoothDeviceAddress?.let { selected ->
             return bonded.firstOrNull { it.address.equals(selected, ignoreCase = true) }
                 ?: throw IOException("The selected iPhone is no longer paired. Choose it again in DiPlay.")
         }
         val iPhones = bonded.filter { device ->
-            device.name?.contains("iPhone", ignoreCase = true) == true
+            bluetoothDeviceName(device)?.contains("iPhone", ignoreCase = true) == true
         }
         val directlyConnectedIPhones = iPhones.filter(::isBluetoothDeviceConnected)
         Log.i(
@@ -2140,7 +2155,7 @@ class CarPlayController(
         if (connectedIPhones.size > 1) {
             throw IOException(
                 "Multiple connected iPhones found: " +
-                    connectedIPhones.joinToString { "${it.name ?: "iPhone"} (${it.address})" },
+                    connectedIPhones.joinToString { "${bluetoothDeviceName(it) ?: "iPhone"} (${it.address})" },
             )
         }
         if (iPhones.size == 1) return iPhones.single()
@@ -2154,6 +2169,12 @@ class CarPlayController(
         throw IOException(
             "No unambiguous bonded iPhone found; pair one iPhone and retry",
         )
+    }
+
+    private fun bluetoothDeviceName(device: BluetoothDevice): String? = try {
+        device.name
+    } catch (_: SecurityException) {
+        null
     }
 
     private fun connectBluetoothSocket(socket: BluetoothSocket, address: String) {
@@ -2299,10 +2320,17 @@ class CarPlayController(
         return synchronized(devices) { devices.toSet() }
     }
 
+    // Optional MAC read: API19 needs BLUETOOTH; API23+ checks the privileged grant.
+    // No privileged permission is requested, and SecurityException falls back to saved identity.
+    @android.annotation.SuppressLint("MissingPermission")
     @Suppress("DEPRECATION")
     private fun accessoryBluetoothMac(adapter: BluetoothAdapter): String {
         val address = try {
-            adapter.address
+            // Android 6+ restricts the real adapter MAC to privileged applications. Keep the
+            // saved receiver identity when this optional read is unavailable.
+            if (Build.VERSION.SDK_INT < 23 ||
+                appContext.checkSelfPermission("android.permission.LOCAL_MAC_ADDRESS") == PackageManager.PERMISSION_GRANTED
+            ) adapter.address else null
         } catch (_: SecurityException) {
             null
         }

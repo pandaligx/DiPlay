@@ -110,10 +110,15 @@ object AirPlayPersistence {
             .putInt("ambient_delay_seconds", seconds.coerceIn(0, 60)).apply()
     }
 
-    fun loadDisplayScalePercent(context: Context): Int =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getInt("display_scale_percent", loadDisplayScaleTenths(context) * 10)
+    fun loadDisplayScalePercent(context: Context): Int {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val metrics = context.resources.displayMetrics
+        val fallback = if (prefs.contains(KEY_DISPLAY_SCALE_TENTHS)) loadDisplayScaleTenths(context) * 10
+            else LegacyDisplayDefaults.scalePercent(Build.VERSION.SDK_INT, metrics.widthPixels, metrics.heightPixels,
+                CarPlayDisplayScale.MIN_PERCENT)
+        return prefs.getInt("display_scale_percent", fallback)
             .coerceIn(CarPlayDisplayScale.MIN_PERCENT, CarPlayDisplayScale.MAX_PERCENT)
+    }
 
     fun saveDisplayScalePercent(context: Context, percent: Int) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
@@ -142,7 +147,7 @@ object AirPlayPersistence {
     }
 
     fun loadHevcEnabled(context: Context): Boolean =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        Build.VERSION.SDK_INT >= 21 && context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getBoolean(KEY_HEVC_ENABLED, false)
 
     fun loadUiScalePercent(context: Context): Int = CarPlayUiScale.sanitize(

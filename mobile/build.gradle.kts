@@ -1,6 +1,5 @@
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.compose)
 }
 
 // Optional local-only input. CI and ordinary source builds contain no accessory identity.
@@ -15,7 +14,8 @@ android {
 
     defaultConfig {
         applicationId = "com.shihab.diplay"
-        minSdk = 28
+        minSdk = 19
+        multiDexEnabled = true
         targetSdk = 37
         versionCode = 31
         versionName = "0.2.12"
@@ -26,7 +26,11 @@ android {
     localAuthenticationAssets?.let { sourceSets.getByName("main").assets.srcDir(it) }
 
     signingConfigs {
+        getByName("debug") {
+            enableV1Signing = true // Android 4.4 cannot install v2/v3-only APKs.
+        }
         create("release") {
+            enableV1Signing = true
             storeFile = file(
                 providers.environmentVariable("ANDROID_KEYSTORE_PATH")
                     .getOrElse("missing-release-keystore.jks"),
@@ -40,7 +44,7 @@ android {
     buildTypes {
         debug {
             applicationIdSuffix = ".hudtest"
-            versionNameSuffix = "-hud-test"
+            versionNameSuffix = "-api19-test"
         }
         release {
             optimization {
@@ -52,25 +56,17 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
-    }
-    buildFeatures {
-        compose = true
+        isCoreLibraryDesugaringEnabled = true
     }
 }
 
 dependencies {
-    implementation(platform(libs.androidx.compose.bom))
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
+    implementation("androidx.multidex:multidex:2.0.1")
     implementation(project(":common"))
     implementation(project(":shared"))
-    implementation(libs.androidx.activity.compose)
-    implementation(libs.androidx.app.projected)
-    implementation(libs.androidx.compose.material3)
-    implementation(libs.androidx.compose.ui)
-    implementation(libs.androidx.compose.ui.graphics)
-    implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
-    debugImplementation(libs.androidx.compose.ui.tooling)
 }
 
 // No implicit import. Only the two explicitly selected local runtime assets are allowed.

@@ -2,7 +2,7 @@ package com.shilapi.xcertplay
 
 import android.content.Intent
 import android.graphics.Bitmap
-import android.media.MediaMetadata
+import android.support.v4.media.MediaMetadataCompat
 import android.view.KeyEvent
 import com.shilapi.xcertplay.airplay.CarPlayMediaButton
 import com.shilapi.xcertplay.media.CarPlayNowPlaying
@@ -16,7 +16,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], manifest = Config.NONE)
+@Config(sdk = [23, 29], manifest = Config.NONE)
 class CarPlayMediaCallbackTest {
     private val sent = mutableListOf<Int>()
     private val callback = CarPlayMediaCallback { index, _ -> sent += index }
@@ -65,15 +65,15 @@ class CarPlayMediaCallbackTest {
             artwork,
         )
 
-        assertEquals("Dreams", metadata.getString(MediaMetadata.METADATA_KEY_TITLE))
-        assertEquals("Dreams", metadata.getString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE))
-        assertEquals("Fleetwood Mac", metadata.getString(MediaMetadata.METADATA_KEY_ARTIST))
-        assertEquals("Fleetwood Mac", metadata.getString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE))
-        assertEquals("Rumours", metadata.getString(MediaMetadata.METADATA_KEY_ALBUM))
-        assertEquals("Music", metadata.getString(MediaMetadata.METADATA_KEY_DISPLAY_DESCRIPTION))
-        assertEquals(257_000, metadata.getLong(MediaMetadata.METADATA_KEY_DURATION))
-        assertEquals(artwork, metadata.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART))
-        assertEquals(artwork, metadata.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON))
+        assertEquals("Dreams", metadata.getString(MediaMetadataCompat.METADATA_KEY_TITLE))
+        assertEquals("Dreams", metadata.getString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE))
+        assertEquals("Fleetwood Mac", metadata.getString(MediaMetadataCompat.METADATA_KEY_ARTIST))
+        assertEquals("Fleetwood Mac", metadata.getString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE))
+        assertEquals("Rumours", metadata.getString(MediaMetadataCompat.METADATA_KEY_ALBUM))
+        assertEquals("Music", metadata.getString(MediaMetadataCompat.METADATA_KEY_DISPLAY_DESCRIPTION))
+        assertEquals(257_000, metadata.getLong(MediaMetadataCompat.METADATA_KEY_DURATION))
+        assertEquals(artwork, metadata.getBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART))
+        assertEquals(artwork, metadata.getBitmap(MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON))
     }
 
     @Test

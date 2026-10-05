@@ -12,6 +12,8 @@ import android.os.SystemClock
 import android.text.format.DateFormat
 import android.view.View
 import android.widget.RemoteViews
+import androidx.appcompat.content.res.AppCompatResources
+import androidx.core.graphics.drawable.toBitmap
 import com.shilapi.xcertplay.glance.CarPlayGlance
 import com.shilapi.xcertplay.host.R
 import java.util.Date
@@ -77,19 +79,19 @@ internal object NavigationWidgetUpdater {
         val type = glance.maneuverType
         when {
             !glance.connected -> {
-                views.setImageViewResource(R.id.widget_arrow, R.drawable.ic_dp_navigation)
+                setArrow(context, views, R.drawable.ic_dp_navigation)
                 views.setTextViewText(R.id.widget_distance, "DiPlay")
                 views.setTextViewText(R.id.widget_road, context.getString(R.string.widget_not_connected))
                 views.setViewVisibility(R.id.widget_eta, View.GONE)
             }
             type == null -> {
-                views.setImageViewResource(R.id.widget_arrow, R.drawable.ic_dp_navigation)
+                setArrow(context, views, R.drawable.ic_dp_navigation)
                 views.setTextViewText(R.id.widget_distance, "CarPlay")
                 views.setTextViewText(R.id.widget_road, context.getString(R.string.widget_no_route))
                 views.setViewVisibility(R.id.widget_eta, View.GONE)
             }
             else -> {
-                views.setImageViewResource(R.id.widget_arrow, arrow(type, glance.drivingSide))
+                setArrow(context, views, arrow(type, glance.drivingSide))
                 views.setTextViewText(R.id.widget_distance, distance(context, glance.distanceMeters.toLong()))
                 views.setTextViewText(R.id.widget_road, glance.road)
                 val eta = listOfNotNull(
@@ -105,6 +107,14 @@ internal object NavigationWidgetUpdater {
         views.setTextViewText(R.id.widget_song, song?.let { (if (glance.playing) "♪ " else "❚❚ ") + it }.orEmpty())
         views.setViewVisibility(R.id.widget_song, if (song == null) View.GONE else View.VISIBLE)
         return views
+    }
+
+    // The launcher inflates RemoteViews with platform widgets. Inflate vectors here with
+    // AppCompat and pass pixels so API 19 launchers never try to parse <vector> themselves.
+    private fun setArrow(context: Context, views: RemoteViews, resource: Int) {
+        val size = (72 * context.resources.displayMetrics.density).toInt().coerceAtLeast(1)
+        val drawable = AppCompatResources.getDrawable(context, resource) ?: return
+        views.setImageViewBitmap(R.id.widget_arrow, drawable.toBitmap(size, size))
     }
 
     /** Apple's RouteGuidanceManeuverType, grouped as DiPlay's BYD outputs group it. */

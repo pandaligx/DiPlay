@@ -4,6 +4,14 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Optional, user-authorized startup of the car's own hotspot. -->
     <uses-permission android:name="android.permission.WRITE_SETTINGS" />
+    <!-- This library directly uses these APIs; declare them here as well as in shared. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
 
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
@@ -23,6 +31,9 @@
         </intent>
     </queries>
     <application>
+        <receiver
+            android:name="com.shilapi.xcertplay.CarPlayMediaButtonReceiver"
+            android:exported="false" />
         <provider
             android:name="com.shilapi.xcertplay.DiagnosticReportProvider"
             android:authorities="${applicationId}.diagnostic-reports"
@@ -66,7 +77,7 @@
         <activity
             android:name="com.shilapi.xcertplay.AdbClusterActivity"
             android:label="@string/adb_cluster_activity_label"
-            android:icon="@drawable/ic_dp_navigation"
+            android:icon="@drawable/ic_carplay"
             android:taskAffinity="${applicationId}.cluster"
             android:excludeFromRecents="true"
             android:resizeableActivity="true"

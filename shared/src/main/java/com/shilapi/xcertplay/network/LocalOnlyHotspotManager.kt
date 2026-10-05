@@ -2,7 +2,6 @@ package com.shilapi.xcertplay.network
 
 import android.content.Context
 import android.net.ConnectivityManager
-import android.net.MacAddress
 import android.net.wifi.SoftApConfiguration
 import android.net.wifi.WifiConfiguration
 import android.net.wifi.WifiManager
@@ -23,6 +22,17 @@ import java.util.UUID
 import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
 
+/** WifiConfiguration is used on API 26/27, before android.net.MacAddress exists. */
+internal fun parseHotspotBssid(value: String): ByteArray {
+    val parts = value.split(':')
+    if (parts.size != 6 || parts.any { part ->
+        part.length !in 1..2 || part.any { it !in '0'..'9' && it !in 'a'..'f' && it !in 'A'..'F' }
+    }) {
+        throw IOException("LocalOnlyHotspot reported an invalid BSSID: $value")
+    }
+    return parts.map { it.toInt(16).toByte() }.toByteArray()
+}
+
 /**
  * Owns one Android LocalOnlyHotspot reservation and reports its live configuration.
  *
@@ -31,6 +41,21 @@ import java.util.concurrent.TimeUnit
  * until [close].
  */
 class LocalOnlyHotspotManager(context: Context, private val onDiagnostic: (String) -> Unit = {}) : WirelessHotspotManager {
+    // LocalOnlyHotspotReservation and callbacks do not exist before Android 8.
+    private val delegate: WirelessHotspotManager? = if (Build.VERSION.SDK_INT >= 26) {
+        Api26LocalOnlyHotspotManager(context, onDiagnostic)
+    } else null
+
+    override fun start(timeoutMillis: Long): WirelessHotspotInfo =
+        delegate?.start(timeoutMillis) ?: throw IOException(
+            "LocalOnlyHotspot requires Android 8 (API 26) or newer; use Car hotspot or Existing Wi-Fi / Same LAN",
+        )
+
+    override fun close() { delegate?.close() }
+}
+
+@RequiresApi(26)
+private class Api26LocalOnlyHotspotManager(context: Context, private val onDiagnostic: (String) -> Unit) : WirelessHotspotManager {
     private val connectivityManager =
         context.applicationContext.getSystemService(ConnectivityManager::class.java)
     private val wifiManager = context.applicationContext.getSystemService(WifiManager::class.java)
@@ -187,10 +212,13 @@ class LocalOnlyHotspotManager(context: Context, private val onDiagnostic: (Strin
         val executor = Executor { main.post(it) }
         if (Build.VERSION.SDK_INT == 33 || Build.VERSION.SDK_INT >= 36) {
             try {
-                val builder = SoftApConfiguration.Builder()
-                SoftApConfiguration.Builder::class.java.getMethod("setSsid", String::class.java)
+                // Builder became a public API in 36. Android 13 exposes the older system
+                // implementation on supported firmware; keep that optional path reflective.
+                val builderType = Class.forName("android.net.wifi.SoftApConfiguration\$Builder")
+                val builder = builderType.getConstructor().newInstance()
+                builderType.getMethod("setSsid", String::class.java)
                     .invoke(builder, "DiPlay-${UUID.randomUUID().toString().take(6)}")
-                SoftApConfiguration.Builder::class.java.getMethod("setPassphrase", String::class.java, Int::class.javaPrimitiveType)
+                builderType.getMethod("setPassphrase", String::class.java, Int::class.javaPrimitiveType)
                     .invoke(builder, UUID.randomUUID().toString().replace("-", "").take(20), SoftApConfiguration.SECURITY_TYPE_WPA2_PSK)
                 // Request the station's 5 GHz channel, or 36 without a 5 GHz station.
                 // BYD may override even a fixed channel (observed 40 -> 149), so credentials
@@ -200,17 +228,18 @@ class LocalOnlyHotspotManager(context: Context, private val onDiagnostic: (Strin
                 val preferredChannel = stationFrequency?.takeIf { it in 5160..5895 }
                     ?.let(::wifiFrequencyMhzToChannel) ?: 36
                 try {
-                    SoftApConfiguration.Builder::class.java.getMethod("setChannel", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+                    builderType.getMethod("setChannel", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
                         .invoke(builder, preferredChannel, SoftApConfiguration.BAND_5GHZ)
                 } catch (_: NoSuchMethodException) {
                     // Android 11 has no setChannel(channel, band); asking for the band
                     // alone still pins 5 GHz and leaves the channel to the firmware.
-                    SoftApConfiguration.Builder::class.java.getMethod("setBand", Int::class.javaPrimitiveType)
+                    builderType.getMethod("setBand", Int::class.javaPrimitiveType)
                         .invoke(builder, SoftApConfiguration.BAND_5GHZ)
                 }
                 val method = if (Build.VERSION.SDK_INT >= 36) "startLocalOnlyHotspotWithConfiguration" else "startLocalOnlyHotspot"
                 WifiManager::class.java.getMethod(method, SoftApConfiguration::class.java, Executor::class.java,
-                    WifiManager.LocalOnlyHotspotCallback::class.java).invoke(wifiManager, builder.build(), executor, callback)
+                    WifiManager.LocalOnlyHotspotCallback::class.java).invoke(wifiManager,
+                        builderType.getMethod("build").invoke(builder), executor, callback)
                 return preferredChannel
             } catch (failure: ReflectiveOperationException) {
                 if (failure.cause != null && failure.cause !is SecurityException && failure.cause !is UnsupportedOperationException) {
@@ -222,7 +251,13 @@ class LocalOnlyHotspotManager(context: Context, private val onDiagnostic: (Strin
             }
         }
         // Main-loop callback delivery survives cancellation to close late reservations.
-        wifiManager.startLocalOnlyHotspot(callback, main)
+        try {
+            wifiManager.startLocalOnlyHotspot(callback, main)
+        } catch (failure: SecurityException) {
+            throw IOException(if (Build.VERSION.SDK_INT >= 33)
+                "Allow Nearby devices for DiPlay to start a local hotspot"
+                else "Allow precise Location for DiPlay to start a local hotspot", failure)
+        }
         return null
     }
 
@@ -444,13 +479,7 @@ class LocalOnlyHotspotManager(context: Context, private val onDiagnostic: (Strin
         val ssid = validateSsid(configuration.SSID)
         val security = mapWifiConfigurationSecurity(configuration)
         val passphrase = validatePassphrase(security, unquote(configuration.preSharedKey))
-        val bssid = configuration.BSSID?.let {
-            try {
-                MacAddress.fromString(it)
-            } catch (failure: IllegalArgumentException) {
-                throw IOException("LocalOnlyHotspot reported an invalid BSSID: $it", failure)
-            }
-        }
+        val bssid = configuration.BSSID?.let(::parseHotspotBssid)
         val channel = readWifiConfigurationChannel(configuration)
 
         return HotspotConfiguration(
@@ -458,8 +487,8 @@ class LocalOnlyHotspotManager(context: Context, private val onDiagnostic: (Strin
             passphrase = passphrase,
             security = security,
             channel = channel,
-            bssid = bssid?.toString(),
-            bssidBytes = bssid?.toByteArray(),
+            bssid = bssid?.toMacAddressString(),
+            bssidBytes = bssid,
             bandLabel = readWifiConfigurationBandLabel(configuration, channel),
         )
     }
